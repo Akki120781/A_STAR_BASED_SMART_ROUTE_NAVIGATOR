@@ -1,0 +1,8 @@
+In this update to the project, we have transitioned from using Dijkstra's algorithm to A* for route planning.
+Dijkstra's algorithm performs a blind search, meaning it explores all possible paths from the start to the goal without
+any guidance towards the most promising routes. In contrast, A* incorporates a heuristic function, which estimates the
+distance to the goal and helps prioritize exploration of the most promising paths. This heuristic-driven approach
+allows A* to find the shortest path faster by reducing the search space and improving efficiency. The main advantage of
+A* is its ability to combine the thoroughness of Dijkstra's algorithm with informed guidance, making it more efficient,
+especially in larger networks or real-time navigation systems. This makes A* particularly useful for applications like
+route planning, where quick and optimal pathfinding is essential.
