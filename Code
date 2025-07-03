@@ -1,0 +1,593 @@
+import java.util.*;
+import java.io.*;
+
+public class Main {
+
+    // Data structures for city coordinates
+    static class Coordinate {
+        String city;
+        float lat, lon;
+        Coordinate(String city, float lat, float lon) {
+            this.city = city;
+            this.lat = lat;
+            this.lon = lon;
+        }
+    }
+
+    // Data structure for road information
+    static class Road {
+        String from, to, sh;
+        int dist;
+        char dir;
+        float traffic;
+        Road(String from, String to, String sh, int dist, char dir, float traffic) {
+            this.from = from;
+            this.to = to;
+            this.sh = sh;
+            this.dist = dist;
+            this.dir = dir;
+            this.traffic = traffic;
+        }
+    }
+
+    // User data
+    static class User {
+        String username, password, home, name;
+        User(String username, String password, String home, String name) {
+            this.username = username;
+            this.password = password;
+            this.home = home;
+            this.name = name;
+        }
+    }
+
+    // For mapping city and SH names to IDs and vice versa
+    static HashMap<String, Integer> cityid = new HashMap<>();
+    static HashMap<Integer, String> cityid2 = new HashMap<>();
+    static HashMap<String, Integer> shid = new HashMap<>();
+    static HashMap<Integer, String> shid2 = new HashMap<>();
+    static HashMap<Integer, Float> xaxis = new HashMap<>();
+    static HashMap<Integer, Float> yaxis = new HashMap<>();
+
+    // User data
+    static ArrayList<User> userdata = new ArrayList<>();
+
+    // For direction mapping
+    static HashMap<Character, Integer> direction = new HashMap<>();
+    static HashMap<Character, Integer> oppdirection = new HashMap<>();
+
+    // Coordinates data
+    static ArrayList<Coordinate> coordinates = new ArrayList<>();
+
+    // Roads data
+    static ArrayList<Road> roads = new ArrayList<>();
+
+    // Scanner for input
+    static Scanner sc = new Scanner(System.in);
+
+    // Login function
+    static void login(WrapperBoolean b, WrapperString name, WrapperString home) {
+        System.out.println("WELCOME TO LOGIN PAGE");
+        System.out.println("Press 1 to continue as guest user");
+        System.out.println("Press 2 to login");
+        System.out.println("Press 3 to create account");
+        b.value = true;
+        int c = sc.nextInt();
+        sc.nextLine();
+        if (c == 1) return;
+        if (c == 2) {
+            System.out.println("Enter username");
+            String un = sc.nextLine();
+            System.out.println("Enter Password");
+            String pass = sc.nextLine();
+            for (User it : userdata) {
+                if (it.username.equals(un) && it.password.equals(pass)) {
+                    b.value = true;
+                    name.value = it.name;
+                    home.value = it.home;
+                    return;
+                }
+            }
+            System.out.println("Incorrect credentials");
+            login(b, name, home);
+        }
+        if (c == 3) {
+            System.out.println("Hey whats your name?");
+            String nam = sc.nextLine();
+            System.out.println("Enter a username:");
+            String un = sc.nextLine();
+            System.out.println("Enter your home city:");
+            String city = sc.nextLine();
+            System.out.println("Choose a password:");
+            String pas = sc.nextLine();
+            boolean isdup = false;
+            for (User it : userdata) {
+                if (it.username.equals(un)) {
+                    isdup = true;
+                    System.out.println("User with this username already exists, please choose some other username.");
+                    break;
+                }
+            }
+            if (!cityid.containsKey(city)) {
+                isdup = true;
+                System.out.println("Invalid home city");
+            }
+            if (isdup) {
+                login(b, name, home);
+            } else {
+                userdata.add(new User(un, pas, city, nam));
+                b.value = true;
+                name.value = nam;
+                home.value = city;
+            }
+        }
+    }
+
+    // Print path function
+    static void printpath(int[] sp, int[][] touchedby, int src, int dest, boolean istraffic) {
+        int i = dest;
+        ArrayList<String> path = new ArrayList<>();
+        while (i != src) {
+            int f = 10;
+            if (istraffic) f = touchedby[i][4];
+            int time = (touchedby[i][2] * 1000) / 1333;
+            time *= f;
+            time /= 10;
+            String dir = "";
+            if (touchedby[i][3] == 1) dir = "South";
+            if (touchedby[i][3] == 2) dir = "North";
+            if (touchedby[i][3] == 3) dir = "East";
+            if (touchedby[i][3] == 4) dir = "West";
+            String ele = "to " + cityid2.get(i) + " via " + shid2.get(touchedby[i][1]) + " towards " + dir + " (" + touchedby[i][2] + " KMs " + time + " MINs),\n then";
+            path.add(ele);
+            i = touchedby[i][0];
+        }
+        path.add("Start from " + cityid2.get(src));
+        Collections.reverse(path);
+        for (String it : path) System.out.print(it + " ");
+        System.out.println("Destination Reached!\n");
+    }
+
+    // Heuristic function (Haversine formula)
+    static int heuristic(int a, int b) {
+        float lat1 = xaxis.get(a);
+        float lon1 = yaxis.get(a);
+        float lat2 = xaxis.get(b);
+        float lon2 = yaxis.get(b);
+        lat1 = (float) (lat1 * Math.PI / 180.0);
+        lon1 = (float) (lon1 * Math.PI / 180.0);
+        lat2 = (float) (lat2 * Math.PI / 180.0);
+        lon2 = (float) (lon2 * Math.PI / 180.0);
+        final double R = 6371;
+        double dlat = lat2 - lat1;
+        double dlon = lon2 - lon1;
+        double aa = Math.sin(dlat / 2) * Math.sin(dlat / 2) +
+                Math.cos(lat1) * Math.cos(lat2) * Math.sin(dlon / 2) * Math.sin(dlon / 2);
+        double c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
+        return (int) (R * c);
+    }
+
+    // With traffic
+    static int withtraffic(ArrayList<ArrayList<int[]>> adj, int src, int dest) {
+        int[] sp = new int[adj.size()];
+        Arrays.fill(sp, Integer.MAX_VALUE);
+        int[][] touchedby = new int[adj.size()][5];
+        sp[src] = 0;
+        touchedby[src] = new int[]{0, 0, 0, 0, 0};
+        TreeSet<Node> myset = new TreeSet<>();
+        myset.add(new Node(heuristic(src, dest), 0, src));
+        while (!myset.isEmpty()) {
+            Node node = myset.pollFirst();
+            int d = node.d;
+            int n = node.n;
+            for (int[] it : adj.get(n)) {
+                int cost = (it[2] * it[4]) / 10;
+                if (sp[it[0]] > sp[n] + cost) {
+                    if (sp[it[0]] != Integer.MAX_VALUE)
+                        myset.remove(new Node(0, sp[it[0]], it[0]));
+                    sp[it[0]] = sp[n] + cost;
+                    touchedby[it[0]] = new int[]{n, it[1], it[2], it[3], it[4]};
+                    myset.add(new Node(heuristic(it[0], dest) + sp[it[0]], sp[it[0]], it[0]));
+                }
+            }
+        }
+        if (sp[dest] == Integer.MAX_VALUE) {
+            System.out.println("Unfortunately, it seems there's no available path from " + cityid2.get(src) + " to " + cityid2.get(dest) + " at the moment.  We look forward to welcoming you again with a better route next time!");
+            return -1;
+        }
+        printpath(sp, touchedby, src, dest, true);
+        return sp[dest];
+    }
+
+    // Without traffic
+    static int withouttraffic(ArrayList<ArrayList<int[]>> adj, int src, int dest) {
+        int[] sp = new int[adj.size()];
+        Arrays.fill(sp, Integer.MAX_VALUE);
+        int[][] touchedby = new int[adj.size()][5];
+        sp[src] = 0;
+        touchedby[src] = new int[]{0, 0, 0, 0, 0};
+        TreeSet<Node> myset = new TreeSet<>();
+        myset.add(new Node(heuristic(src, dest), 0, src));
+        while (!myset.isEmpty()) {
+            Node node = myset.pollFirst();
+            int d = node.d;
+            int n = node.n;
+            for (int[] it : adj.get(n)) {
+                if (sp[it[0]] > sp[n] + it[2]) {
+                    if (sp[it[0]] != Integer.MAX_VALUE)
+                        myset.remove(new Node(0, sp[it[0]], it[0]));
+                    sp[it[0]] = sp[n] + it[2];
+                    touchedby[it[0]] = new int[]{n, it[1], it[2], it[3], it[4]};
+                    myset.add(new Node(heuristic(it[0], dest) + sp[it[0]], sp[it[0]], it[0]));
+                }
+            }
+        }
+        printpath(sp, touchedby, src, dest, false);
+        return sp[dest];
+    }
+
+    // Node class for TreeSet
+    static class Node implements Comparable<Node> {
+        int h, d, n;
+        Node(int h, int d, int n) {
+            this.h = h;
+            this.d = d;
+            this.n = n;
+        }
+        public int compareTo(Node o) {
+            if (this.h != o.h) return Integer.compare(this.h, o.h);
+            if (this.d != o.d) return Integer.compare(this.d, o.d);
+            return Integer.compare(this.n, o.n);
+        }
+        public boolean equals(Object o) {
+            if (!(o instanceof Node)) return false;
+            Node other = (Node) o;
+            return this.d == other.d && this.n == other.n;
+        }
+        public int hashCode() {
+            return Objects.hash(d, n);
+        }
+    }
+
+    // Wrapper classes for mutable references
+    static class WrapperBoolean { boolean value; WrapperBoolean(boolean v) { value = v; } }
+    static class WrapperString { String value; WrapperString(String v) { value = v; } }
+
+    // Main function
+    public static void main(String[] args) {
+        // Direction mapping
+        direction.put('N', 1);
+        direction.put('S', 2);
+        direction.put('W', 3);
+        direction.put('E', 4);
+
+        oppdirection.put('N', 2);
+        oppdirection.put('S', 1);
+        oppdirection.put('W', 4);
+        oppdirection.put('E', 3);
+
+        // Fill coordinates
+        fillCoordinates();
+
+        // Fill roads
+        fillRoads();
+
+        // Fill user data
+        userdata.add(new User("Akki", "12317750", "Indore", "Akki"));
+        
+
+        // Assign city and SH ids
+        int shc = 1;
+        int cityc = 1;
+        for (Road it : roads) {
+            if (!cityid.containsKey(it.from)) {
+                cityid.put(it.from, cityc);
+                cityid2.put(cityc, it.from);
+                cityc++;
+            }
+            if (!cityid.containsKey(it.to)) {
+                cityid.put(it.to, cityc);
+                cityid2.put(cityc, it.to);
+                cityc++;
+            }
+            if (!shid.containsKey(it.sh)) {
+                shid.put(it.sh, shc);
+                shid2.put(shc, it.sh);
+                shc++;
+            }
+        }
+
+        // Assign coordinates to city ids
+        for (Coordinate it : coordinates) {
+            if (cityid.containsKey(it.city)) {
+                xaxis.put(cityid.get(it.city), it.lat);
+                yaxis.put(cityid.get(it.city), it.lon);
+            }
+        }
+
+        // Build adjacency list
+        ArrayList<ArrayList<int[]>> adj = new ArrayList<>();
+        for (int i = 0; i < cityc + 2; i++) adj.add(new ArrayList<>());
+        for (Road it : roads) {
+            int from = cityid.get(it.from);
+            int to = cityid.get(it.to);
+            int sh = shid.get(it.sh);
+            int dist = it.dist;
+            int dir = direction.get(it.dir);
+            int tval = (int) (it.traffic * 10);
+            int oppdir = oppdirection.get(it.dir);
+            adj.get(from).add(new int[]{to, sh, dist, dir, tval});
+            adj.get(to).add(new int[]{from, sh, dist, oppdir, tval});
+        }
+
+        int n = 1;
+        WrapperBoolean b = new WrapperBoolean(false);
+        WrapperString name = new WrapperString("guest");
+        WrapperString home = new WrapperString("none");
+        int c = 0;
+        while (n != 0) {
+            System.out.println("------------------------------------------------------------------");
+            if (!b.value) login(b, name, home);
+            c++;
+            if (c > 100) {
+                System.out.println("Apologies, the session expired.");
+                break;
+            }
+            System.out.println("Hello " + name.value);
+            System.out.println("WELCOME TO DASHBOARD");
+            System.out.println("Press 1 to find path to a city from your hometown. (not for guest users)");
+            System.out.println("Press 2 to find path to a city from any city.");
+            System.out.println("Press 3 to go to login page.");
+            System.out.println("Press 0 to exit");
+            n = sc.nextInt();
+            sc.nextLine();
+            if (n == 3) {
+                login(b, name, home);
+            }
+            if (n == 1) {
+                if (home.value.equals("none"))
+                    System.out.println("Sorry this feature is not for guest users");
+                else {
+                    System.out.println("Enter destination:");
+                    String destination = sc.nextLine();
+                    if (!cityid.containsKey(destination)) {
+                        System.out.println("Sorry currently we dont have data for the entered destination city");
+                        continue;
+                    }
+                    System.out.println("do you want to consider traffic ? (0 for no and 1 for yes)");
+                    boolean t = sc.nextInt() != 0;
+                    sc.nextLine();
+                    if (t)
+                        withtraffic(adj, cityid.get(home.value), cityid.get(destination));
+                    else
+                        withouttraffic(adj, cityid.get(home.value), cityid.get(destination));
+                }
+            }
+            if (n == 2) {
+                System.out.println("Enter source:");
+                String current = sc.nextLine();
+                if (!cityid.containsKey(current)) {
+                    System.out.println("Sorry currently we dont have data for the entered source city");
+                    continue;
+                }
+                System.out.println("Enter destination:");
+                String destination = sc.nextLine();
+                if (!cityid.containsKey(destination)) {
+                    System.out.println("Sorry currently we dont have data for the entered destination city");
+                    continue;
+                }
+                System.out.println("do you want to consider traffic ? (0 for no and 1 for yes)");
+                boolean t = sc.nextInt() != 0;
+                sc.nextLine();
+                if (t)
+                    withtraffic(adj, cityid.get(current), cityid.get(destination));
+                else
+                    withouttraffic(adj, cityid.get(current), cityid.get(destination));
+            }
+        }
+    }
+
+    // Helper to fill coordinates
+    static void fillCoordinates() {
+        coordinates.add(new Coordinate("Porsa", 24.5678f, 78.1234f));
+        coordinates.add(new Coordinate("Pipariya", 23.4567f, 77.2345f));
+        coordinates.add(new Coordinate("Kannod", 22.3456f, 75.3456f));
+        coordinates.add(new Coordinate("Banapura", 21.2345f, 74.4567f));
+        coordinates.add(new Coordinate("Hatta", 20.1234f, 73.5678f));
+        coordinates.add(new Coordinate("Vijaypur", 19.0123f, 72.6789f));
+        coordinates.add(new Coordinate("Tendukheda", 18.9012f, 71.7890f));
+        coordinates.add(new Coordinate("Sailana", 18.7890f, 70.8901f));
+        coordinates.add(new Coordinate("Sarangpur", 18.6789f, 69.9012f));
+        coordinates.add(new Coordinate("Sendhwa", 18.5678f, 68.0123f));
+        coordinates.add(new Coordinate("Kukshi", 18.4567f, 67.1234f));
+        coordinates.add(new Coordinate("Suwasra", 18.3456f, 66.2345f));
+        coordinates.add(new Coordinate("Orchha", 25.6789f, 80.1234f));
+        coordinates.add(new Coordinate("Kolaras", 24.5678f, 79.2345f));
+        coordinates.add(new Coordinate("Rajpur", 23.4567f, 78.3456f));
+        coordinates.add(new Coordinate("Lahar", 22.3456f, 77.4567f));
+        coordinates.add(new Coordinate("Gotegaon", 21.2345f, 76.5678f));
+        coordinates.add(new Coordinate("Khurai", 20.1234f, 75.6789f));
+        coordinates.add(new Coordinate("Pandhurna", 19.0123f, 74.7890f));
+        coordinates.add(new Coordinate("Tikri", 18.9012f, 73.8901f));
+        coordinates.add(new Coordinate("Jaora", 23.5678f, 75.1234f));
+        coordinates.add(new Coordinate("Malthone", 22.4567f, 74.2345f));
+        coordinates.add(new Coordinate("Badnagar", 21.3456f, 73.3456f));
+        coordinates.add(new Coordinate("Harda", 22.1234f, 76.4567f));
+        coordinates.add(new Coordinate("Shajapur", 23.0123f, 75.5678f));
+        coordinates.add(new Coordinate("Itarsi", 22.9012f, 77.6789f));
+        coordinates.add(new Coordinate("Dewas", 23.7890f, 76.0123f));
+        coordinates.add(new Coordinate("Bhikangaon", 21.6789f, 74.1234f));
+        coordinates.add(new Coordinate("Mandla", 22.5678f, 80.2345f));
+        coordinates.add(new Coordinate("Shahdol", 23.4567f, 81.3456f));
+        coordinates.add(new Coordinate("Katni", 24.3456f, 80.4567f));
+        coordinates.add(new Coordinate("Sanawad", 22.2345f, 75.5678f));
+        coordinates.add(new Coordinate("Ratlam", 23.1234f, 75.6789f));
+        coordinates.add(new Coordinate("Singrauli", 24.0123f, 82.7890f));
+        coordinates.add(new Coordinate("Sehore", 23.9012f, 77.0123f));
+        coordinates.add(new Coordinate("Shujalpur", 23.7890f, 76.1234f));
+        coordinates.add(new Coordinate("Khandwa", 22.6789f, 76.2345f));
+        coordinates.add(new Coordinate("Seoni", 22.5678f, 79.3456f));
+        coordinates.add(new Coordinate("Badwani", 21.4567f, 74.4567f));
+        coordinates.add(new Coordinate("Betul", 21.3456f, 77.5678f));
+        coordinates.add(new Coordinate("Sheopur", 25.1234f, 76.6789f));
+        coordinates.add(new Coordinate("Vidisha", 23.0123f, 77.7890f));
+        coordinates.add(new Coordinate("Dhar", 22.9012f, 75.8901f));
+        coordinates.add(new Coordinate("Niwari", 25.6789f, 79.0123f));
+        coordinates.add(new Coordinate("Ashtha", 24.5678f, 78.1234f));
+        coordinates.add(new Coordinate("Bhopal", 23.4567f, 77.2345f));
+        coordinates.add(new Coordinate("Gwalior", 26.3456f, 78.3456f));
+        coordinates.add(new Coordinate("Hoshangabad", 22.2345f, 77.4567f));
+        coordinates.add(new Coordinate("Shahgarh", 24.1234f, 76.5678f));
+        coordinates.add(new Coordinate("Bina", 24.0123f, 77.6789f));
+        coordinates.add(new Coordinate("Indore", 22.9012f, 75.7890f));
+        coordinates.add(new Coordinate("Shivpuri", 25.7890f, 77.0123f));
+        coordinates.add(new Coordinate("Pithampur", 22.6789f, 75.2345f));
+        coordinates.add(new Coordinate("Ashoknagar", 24.5678f, 77.3456f));
+        coordinates.add(new Coordinate("Chhindwara", 22.4567f, 78.4567f));
+        coordinates.add(new Coordinate("Rewa", 24.3456f, 81.5678f));
+        coordinates.add(new Coordinate("Guna", 24.2345f, 77.6789f));
+        coordinates.add(new Coordinate("Mandsaur", 24.1234f, 75.7890f));
+        coordinates.add(new Coordinate("Balaghat", 21.7890f, 80.0123f));
+        coordinates.add(new Coordinate("Rampur Baghelan", 24.6789f, 79.2345f));
+        coordinates.add(new Coordinate("Morena", 26.5678f, 78.3456f));
+        coordinates.add(new Coordinate("Maihar", 23.4567f, 80.4567f));
+        coordinates.add(new Coordinate("Ujjain", 23.3456f, 75.5678f));
+        coordinates.add(new Coordinate("Damoh", 24.2345f, 80.6789f));
+        coordinates.add(new Coordinate("Jabalpur", 23.1234f, 79.7890f));
+        coordinates.add(new Coordinate("Sagar", 23.0123f, 78.8901f));
+        coordinates.add(new Coordinate("Burhanpur", 21.6789f, 76.2345f));
+        coordinates.add(new Coordinate("Burhar", 22.5678f, 79.3456f));
+        coordinates.add(new Coordinate("Chichli", 23.4567f, 80.4567f));
+        coordinates.add(new Coordinate("Narsinghpur", 23.3456f, 79.5678f));
+        coordinates.add(new Coordinate("Satna", 24.2345f, 80.6789f));
+        coordinates.add(new Coordinate("Chhatarpur", 24.1234f, 79.7890f));
+        coordinates.add(new Coordinate("Panna", 24.0123f, 80.8901f));
+        coordinates.add(new Coordinate("Manawar", 22.6789f, 75.2345f));
+        coordinates.add(new Coordinate("Tikamgarh", 24.5678f, 78.3456f));
+        coordinates.add(new Coordinate("Maheshwar", 22.4567f, 75.4567f));
+        coordinates.add(new Coordinate("Bhind", 26.2345f, 78.5678f));
+        coordinates.add(new Coordinate("Alirajpur", 23.1234f, 74.6789f));
+        coordinates.add(new Coordinate("Barwani", 22.0123f, 75.7890f));
+        coordinates.add(new Coordinate("Rajgarh", 23.9012f, 76.0123f));
+        coordinates.add(new Coordinate("Raisen", 23.7890f, 77.1234f));
+        coordinates.add(new Coordinate("Anuppur", 23.6789f, 81.2345f));
+        coordinates.add(new Coordinate("Dindori", 23.5678f, 81.2345f));
+        coordinates.add(new Coordinate("Jhabua", 22.4567f, 80.3456f));
+        coordinates.add(new Coordinate("Umaria", 25.6789f, 82.5678f));
+        coordinates.add(new Coordinate("Neemuch", 23.7890f, 75.6789f));
+        coordinates.add(new Coordinate("Nagda", 23.5678f, 76.1234f));
+        coordinates.add(new Coordinate("Datia", 25.1234f, 78.7890f));
+        coordinates.add(new Coordinate("Khargone", 21.3456f, 75.7890f));
+        coordinates.add(new Coordinate("Sidhi", 22.2345f, 74.6789f));
+        coordinates.add(new Coordinate("Agar-Malwa", 24.3456f, 77.7890f));
+        coordinates.add(new Coordinate("Barhi", 22.1234f, 76.3456f));
+    }
+
+    // Helper to fill roads
+    static void fillRoads() {
+        roads.add(new Road("Bhopal", "Indore", "SH 18", 200, 'N', 1.2f));
+        roads.add(new Road("Bhopal", "Gwalior", "SH 19", 300, 'S', 1.1f));
+        roads.add(new Road("Indore", "Ujjain", "SH 27", 55, 'N', 1.0f));
+        roads.add(new Road("Indore", "Ratlam", "SH 27", 90, 'N', 1.3f));
+        roads.add(new Road("Gwalior", "Jabalpur", "SH 22", 250, 'N', 1.0f));
+        roads.add(new Road("Gwalior", "Shivpuri", "SH 19", 120, 'S', 1.2f));
+        roads.add(new Road("Jabalpur", "Sagar", "SH 23", 180, 'S', 1.1f));
+        roads.add(new Road("Ujjain", "Dewas", "SH 18", 30, 'N', 0.9f));
+        roads.add(new Road("Sagar", "Rewa", "SH 26", 220, 'S', 1.5f));
+        roads.add(new Road("Rewa", "Satna", "SH 12", 70, 'N', 1.0f));
+        roads.add(new Road("Dewas", "Chhindwara", "SH 18", 160, 'S', 1.4f));
+        roads.add(new Road("Morena", "Shivpuri", "SH 22", 100, 'N', 1.3f));
+        roads.add(new Road("Vidisha", "Betul", "SH 18", 130, 'S', 1.1f));
+        roads.add(new Road("Betul", "Neemuch", "SH 24", 160, 'N', 1.0f));
+        roads.add(new Road("Seoni", "Damoh", "SH 26", 170, 'N', 1.4f));
+        roads.add(new Road("Mandsaur", "Khandwa", "SH 18", 140, 'S', 1.2f));
+        roads.add(new Road("Burhanpur", "Singrauli", "SH 35", 280, 'N', 1.5f));
+        roads.add(new Road("Shahdol", "Pithampur", "SH 33", 120, 'N', 1.0f));
+        roads.add(new Road("Katni", "Itarsi", "SH 42", 200, 'S', 1.3f));
+        roads.add(new Road("Hoshangabad", "Harda", "SH 22", 50, 'N', 1.1f));
+        roads.add(new Road("Mandla", "Sehore", "SH 37", 160, 'S', 1.4f));
+        roads.add(new Road("Balaghat", "Raisen", "SH 11", 130, 'N', 1.2f));
+        roads.add(new Road("Narsinghpur", "Chhatarpur", "SH 17", 210, 'S', 1.5f));
+        roads.add(new Road("Tikamgarh", "Bhind", "SH 34", 180, 'S', 1.1f));
+        roads.add(new Road("Alirajpur", "Barwani", "SH 15", 70, 'S', 1.0f));
+        roads.add(new Road("Rajgarh", "Dhar", "SH 33", 100, 'N', 1.3f));
+        roads.add(new Road("Anuppur", "Ashoknagar", "SH 26", 150, 'N', 1.2f));
+        roads.add(new Road("Dindori", "Datia", "SH 16", 110, 'S', 1.4f));
+        roads.add(new Road("Guna", "Khargone", "SH 12", 160, 'N', 1.1f));
+        roads.add(new Road("Jhabua", "Sidhi", "SH 31", 210, 'S', 1.3f));
+        roads.add(new Road("Umaria", "Sheopur", "SH 35", 200, 'N', 1.2f));
+        roads.add(new Road("Shajapur", "Agar-Malwa", "SH 30", 50, 'S', 1.5f));
+        roads.add(new Road("Panna", "Burhar", "SH 29", 160, 'N', 1.0f));
+        roads.add(new Road("Maihar", "Nagda", "SH 12", 80, 'S', 1.1f));
+        roads.add(new Road("Maheshwar", "Bina", "SH 42", 90, 'N', 1.2f));
+        roads.add(new Road("Barhi", "Shujalpur", "SH 37", 100, 'S', 1.4f));
+        roads.add(new Road("Neemuch", "Sanawad", "SH 13", 120, 'S', 1.0f));
+        roads.add(new Road("Badnagar", "Ashtha", "SH 15", 140, 'N', 1.3f));
+        roads.add(new Road("Jaora", "Tikri", "SH 17", 70, 'S', 1.2f));
+        roads.add(new Road("Pandhurna", "Khurai", "SH 41", 140, 'N', 1.1f));
+        roads.add(new Road("Gotegaon", "Shahgarh", "SH 12", 110, 'S', 1.5f));
+        roads.add(new Road("Rajpur", "Bhikangaon", "SH 26", 90, 'S', 1.0f));
+        roads.add(new Road("Kolaras", "Niwari", "SH 18", 180, 'N', 1.4f));
+        roads.add(new Road("Orchha", "Suwasra", "SH 33", 170, 'S', 1.3f));
+        roads.add(new Road("Badwani", "Kukshi", "SH 35", 50, 'N', 1.2f));
+        roads.add(new Road("Sendhwa", "Shahdol", "SH 20", 210, 'N', 1.1f));
+        roads.add(new Road("Sarangpur", "Sailana", "SH 40", 90, 'S', 1.5f));
+        roads.add(new Road("Lahar", "Tendukheda", "SH 39", 100, 'N', 1.0f));
+        roads.add(new Road("Rampur Baghelan", "Vijaypur", "SH 24", 120, 'S', 1.2f));
+        roads.add(new Road("Hatta", "Manawar", "SH 21", 160, 'N', 1.4f));
+        roads.add(new Road("Banapura", "Kannod", "SH 34", 50, 'S', 1.3f));
+        roads.add(new Road("Pipariya", "Chichli", "SH 20", 60, 'N', 1.1f));
+        roads.add(new Road("Porsa", "Malthone", "SH 42", 140, 'N', 1.2f));
+        roads.add(new Road("Bhopal", "Dewas", "SH 18", 110, 'S', 1.0f));
+        roads.add(new Road("Bhopal", "Raisen", "SH 22", 130, 'S', 1.3f));
+        roads.add(new Road("Indore", "Dewas", "SH 18", 70, 'N', 1.2f));
+        roads.add(new Road("Indore", "Mandsaur", "SH 27", 180, 'N', 1.0f));
+        roads.add(new Road("Ujjain", "Jabalpur", "SH 23", 150, 'N', 1.3f));
+        roads.add(new Road("Gwalior", "Mandla", "SH 11", 190, 'S', 1.4f));
+        roads.add(new Road("Katni", "Damoh", "SH 26", 200, 'S', 1.1f));
+        roads.add(new Road("Betul", "Khandwa", "SH 18", 100, 'N', 1.2f));
+        roads.add(new Road("Sagar", "Seoni", "SH 37", 230, 'N', 1.0f));
+        roads.add(new Road("Rewa", "Panna", "SH 42", 160, 'S', 1.3f));
+        roads.add(new Road("Khargone", "Kukshi", "SH 35", 210, 'N', 1.2f));
+        roads.add(new Road("Barwani", "Pithampur", "SH 19", 180, 'S', 1.4f));
+        roads.add(new Road("Tikamgarh", "Katni", "SH 15", 90, 'N', 1.1f));
+        roads.add(new Road("Shivpuri", "Sagar", "SH 18", 120, 'S', 1.0f));
+        roads.add(new Road("Pithampur", "Dewas", "SH 27", 200, 'S', 1.2f));
+        roads.add(new Road("Rewa", "Satna", "SH 11", 130, 'N', 1.5f));
+        roads.add(new Road("Burhanpur", "Guna", "SH 26", 160, 'S', 1.4f));
+        roads.add(new Road("Shahdol", "Sidhi", "SH 33", 110, 'N', 1.3f));
+        roads.add(new Road("Sehore", "Rajgarh", "SH 37", 130, 'S', 1.2f));
+        roads.add(new Road("Mandla", "Seoni", "SH 22", 140, 'S', 1.4f));
+        roads.add(new Road("Mandsaur", "Ratlam", "SH 23", 50, 'N', 1.0f));
+        roads.add(new Road("Shivpuri", "Ratlam", "SH 19", 160, 'N', 1.3f));
+        roads.add(new Road("Raisen", "Jabalpur", "SH 27", 170, 'N', 1.1f));
+        roads.add(new Road("Khargone", "Barwani", "SH 24", 130, 'S', 1.0f));
+        roads.add(new Road("Indore", "Dewas", "SH 37", 180, 'N', 1.5f));
+        roads.add(new Road("Rewa", "Jabalpur", "SH 18", 140, 'S', 1.2f));
+        roads.add(new Road("Katni", "Sidhi", "SH 15", 200, 'N', 1.4f));
+        roads.add(new Road("Shivpuri", "Satna", "SH 11", 130, 'S', 1.0f));
+        roads.add(new Road("Burhanpur", "Ujjain", "SH 37", 150, 'S', 1.2f));
+        roads.add(new Road("Dewas", "Raisen", "SH 42", 100, 'N', 1.3f));
+        roads.add(new Road("Pithampur", "Panna", "SH 11", 180, 'N', 1.5f));
+        roads.add(new Road("Mandsaur", "Sagar", "SH 19", 220, 'S', 1.2f));
+        roads.add(new Road("Sehore", "Ujjain", "SH 24", 90, 'S', 1.4f));
+        roads.add(new Road("Guna", "Tikamgarh", "SH 18", 160, 'S', 1.1f));
+        roads.add(new Road("Hoshangabad", "Mandla", "SH 15", 110, 'N', 1.3f));
+        roads.add(new Road("Betul", "Pithampur", "SH 30", 180, 'S', 1.0f));
+        roads.add(new Road("Shivpuri", "Khargone", "SH 27", 140, 'N', 1.4f));
+        roads.add(new Road("Gwalior", "Betul", "SH 24", 100, 'S', 1.2f));
+        roads.add(new Road("Indore", "Shajapur", "SH 11", 160, 'N', 1.1f));
+        roads.add(new Road("Guna", "Jabalpur", "SH 37", 220, 'N', 1.3f));
+        roads.add(new Road("Shivpuri", "Khargone", "SH 27", 180, 'S', 1.0f));
+        roads.add(new Road("Ratlam", "Mandsaur", "SH 35", 50, 'S', 1.5f));
+        roads.add(new Road("Gwalior", "Sagar", "SH 11", 210, 'N', 1.2f));
+        roads.add(new Road("Seoni", "Indore", "SH 12", 230, 'S', 1.4f));
+        roads.add(new Road("Pithampur", "Ujjain", "SH 33", 180, 'N', 1.3f));
+        roads.add(new Road("Damoh", "Ujjain", "SH 37", 160, 'N', 1.1f));
+        roads.add(new Road("Katni", "Indore", "SH 30", 140, 'S', 1.2f));
+        roads.add(new Road("Bhopal", "Betul", "SH 18", 190, 'N', 1.3f));
+        roads.add(new Road("Guna", "Ujjain", "SH 19", 170, 'S', 1.1f));
+        roads.add(new Road("Mandla", "Sagar", "SH 12", 210, 'N', 1.4f));
+        roads.add(new Road("Ratlam", "Gwalior", "SH 33", 50, 'N', 1.0f));
+    }
+}
