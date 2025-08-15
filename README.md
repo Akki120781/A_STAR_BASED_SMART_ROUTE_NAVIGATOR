@@ -2,7 +2,7 @@
 A_STAR_BASED_SMART_ROUTE_NAVIGATOR
 Project Description: Smart Route Navigator
 
-The Smart Route Navigator is an intelligent and user-friendly route planning system designed to provide optimal navigation paths between cities, considering factors such as distance, traffic conditions, and road types. Built using C++, this project leverages graph algorithms, geospatial calculations, and user authentication to deliver a seamless experience for travelers.
+The Smart Route Navigator is an intelligent and user-friendly route planning system designed to provide optimal navigation paths between cities, considering factors such as distance, traffic conditions, and road types. Built using java, this project leverages graph algorithms, geospatial calculations, and user authentication to deliver a seamless experience for travelers.
 
 Key Features:
 1. User Authentication:
